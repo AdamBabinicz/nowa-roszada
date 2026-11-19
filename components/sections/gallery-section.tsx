@@ -101,7 +101,6 @@ function getLocalizedAttribution(photo: GalleryItem, lang: LangCode) {
   const isDe = lang === "de";
   const isHu = lang === "hu";
 
-  // 1. Jeśli autor/licencja pochodzą bezpośrednio z bazy Neon lub obiektu ze słownika
   if (photo.author) {
     return {
       author: photo.author,
@@ -125,7 +124,6 @@ function getLocalizedAttribution(photo: GalleryItem, lang: LangCode) {
         ? "Fotó:"
         : "Photo:";
 
-  // 2. Fallback mapy identyfikatorów dla danych statycznych
   switch (photo.id) {
     case "srebrna-odznaka-torwar-2025":
       return {
@@ -377,7 +375,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
     setSlideIndex((prev) => (prev + 1) % activeSlides.length);
   }, [activeSlides.length]);
 
-  // Obsługa klawiatury i blokada przewijania strony w tle podczas otwartego slajdera
+  // Obsługa klawiatury i blokada przewijania strony w tle
   useEffect(() => {
     if (!activePhoto) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -428,13 +426,12 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
     }
 
     if (isHorizontalSwipeRef.current) {
-      // Subtelne podążanie zdjęcia za palcem (z lekkim oporem)
-      setSwipeOffset(Math.max(-110, Math.min(110, dx * 0.45)));
+      setSwipeOffset(Math.max(-120, Math.min(120, dx * 0.55)));
     }
   };
 
   const handleTouchEnd = () => {
-    if (isHorizontalSwipeRef.current && Math.abs(swipeOffset) > 20) {
+    if (isHorizontalSwipeRef.current && Math.abs(swipeOffset) > 22) {
       if (swipeOffset < 0) {
         showNextSlide();
       } else {
@@ -446,10 +443,12 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
     setSwipeOffset(0);
   };
 
-  // Zlokalizowana, rzetelna nota prawna bezpośrednio ze słowników językowych
   const legalNote = t.gallery.legalNote;
   const licenseLabel = t.gallery.licenseLabel;
   const rightsReserved = t.gallery.rightsReserved;
+  const activeAttribution = activePhoto
+    ? getLocalizedAttribution(activePhoto, langCode)
+    : null;
 
   return (
     <section
@@ -535,7 +534,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
           ))}
         </div>
 
-        {/* Siatka Fotografii (1 karta = 1 wydarzenie, proporcje 4:3 dla ekspozycji obrazu) */}
+        {/* Siatka Fotografii (1 karta = 1 wydarzenie) */}
         <div className="mt-6 grid gap-4 sm:mt-7 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
           {filteredPhotos.map((photo) => {
             const attribution = getLocalizedAttribution(photo, langCode);
@@ -621,40 +620,76 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
         </div>
       </div>
 
-      {/* Lightbox Modal ze slajderem — uniwersalna proporcja kadru + przesuwanie palcem (swipe) */}
+      {/* Lightbox Modal:
+          - Mobile (<640px): pełnoekranowy widok ze stałym formatem wypełniającym ekran smartfona + swipe palcem
+          - Desktop (>=640px): układ pionowy z dużą fotką ponad tekstem i paskiem miniaturek */}
       {mounted &&
         activePhoto &&
         currentSlide &&
+        activeAttribution &&
         createPortal(
           <div
             role="dialog"
             aria-modal="true"
             aria-label={t.lightbox.ariaLabel}
             onClick={closePhoto}
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-2.5 sm:p-4 backdrop-blur-sm dark:bg-black/88"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-background sm:bg-black/75 sm:p-4 sm:backdrop-blur-sm dark:sm:bg-black/88"
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="relative flex max-h-[92dvh] w-full max-w-[96vw] lg:max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl"
+              className="relative flex h-dvh w-screen flex-col overflow-hidden bg-background text-foreground sm:h-[92vh] sm:w-full sm:max-w-[96vw] lg:max-w-5xl xl:max-w-6xl sm:rounded-2xl sm:border sm:border-border sm:bg-card sm:shadow-2xl"
             >
-              {/* Scena fotografii o stałej, uniwersalnej proporcji (5:4 na mobile, 16:10 na desktopie) */}
+              {/* MOBILE ONLY: Górny pasek poza zdjęciem */}
+              <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-card px-3 sm:hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  {activeSlides.length > 1 && (
+                    <div className="flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/50 px-1 py-0.5 text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={showPrevSlide}
+                        aria-label={sliderLabels.prevPhoto}
+                        className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-background"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="px-1.5 tabular-nums">
+                        {safeSlideIndex + 1} / {activeSlides.length}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={showNextSlide}
+                        aria-label={sliderLabels.nextPhoto}
+                        className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-background"
+                      >
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  <span className="truncate text-xs font-bold text-foreground">
+                    {activePhoto.title}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closePhoto}
+                  aria-label={t.lightbox.closeAria}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/50 text-foreground"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+
+              {/* SCENA ZDJĘCIA:
+                  - Mobile: stały, jednolity kadr wypełniający całą wolną przestrzeń smartfona (object-cover) + swipe
+                  - Desktop: duża scena nad tekstem pokazująca pełne proporcje zdjęcia (object-contain) */}
               <div
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onTouchCancel={handleTouchEnd}
-                className="relative flex w-full shrink-0 aspect-[5/4] sm:aspect-[16/10] max-h-[60dvh] sm:max-h-[66dvh] items-center justify-center overflow-hidden bg-zinc-200 dark:bg-zinc-950 touch-pan-y select-none"
+                className="relative flex flex-1 min-h-0 w-full items-center justify-center overflow-hidden bg-zinc-100 p-0 sm:p-3 dark:bg-zinc-950 touch-pan-y select-none"
               >
-                {/* Miękkie, rozmyte tło z bieżącego zdjęcia wypełniające boki bez czarnych pasów */}
-                <img
-                  src={currentSlide.url}
-                  alt=""
-                  aria-hidden="true"
-                  draggable={false}
-                  className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl dark:opacity-40"
-                />
-
-                {/* Główne zdjęcie — w całości widoczne (bez przycinania), przesuwane palcem */}
                 <img
                   src={currentSlide.url}
                   alt={currentSlide.caption || activePhoto.title}
@@ -665,14 +700,14 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
                     transition:
                       swipeOffset === 0 ? "transform 180ms ease-out" : "none",
                   }}
-                  className="relative z-10 max-h-full max-w-full w-auto h-auto p-1.5 sm:p-2.5 object-contain drop-shadow-md"
+                  className="h-full w-full object-cover object-[50%_25%] sm:h-auto sm:w-auto sm:max-h-full sm:max-w-full sm:rounded-lg sm:object-contain sm:shadow-xs"
                 />
 
-                {/* Zamknij */}
+                {/* DESKTOP ONLY: Zamknij, licznik i strzałki boczne */}
                 <button
                   type="button"
                   onClick={closePhoto}
-                  className="absolute top-2.5 right-2.5 z-20 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-background"
+                  className="hidden sm:flex absolute top-3 right-3 z-20 h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-background"
                   aria-label={t.lightbox.closeAria}
                 >
                   <X className="h-5 w-5" aria-hidden="true" />
@@ -684,34 +719,28 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
                       type="button"
                       onClick={showPrevSlide}
                       aria-label={sliderLabels.prevPhoto}
-                      className="absolute top-1/2 left-2 sm:left-3 z-20 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
+                      className="hidden sm:flex absolute top-1/2 left-3 -translate-y-1/2 h-11 w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
                     >
-                      <ChevronLeft
-                        className="h-5 w-5 sm:h-6 sm:w-6"
-                        aria-hidden="true"
-                      />
+                      <ChevronLeft className="h-6 w-6" aria-hidden="true" />
                     </button>
 
                     <button
                       type="button"
                       onClick={showNextSlide}
                       aria-label={sliderLabels.nextPhoto}
-                      className="absolute top-1/2 right-2 sm:right-3 z-20 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
+                      className="hidden sm:flex absolute top-1/2 right-3 -translate-y-1/2 h-11 w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
                     >
-                      <ChevronRight
-                        className="h-5 w-5 sm:h-6 sm:w-6"
-                        aria-hidden="true"
-                      />
+                      <ChevronRight className="h-6 w-6" aria-hidden="true" />
                     </button>
 
-                    <div className="absolute top-2.5 left-2.5 z-20 rounded-full border border-border/80 bg-background/85 px-2.5 py-1 text-[11px] font-bold text-foreground shadow-xs backdrop-blur-xs">
+                    <div className="hidden sm:block absolute top-3 left-3 rounded-full border border-border/80 bg-background/85 px-3 py-1 text-xs font-bold text-foreground shadow-xs backdrop-blur-xs">
                       {safeSlideIndex + 1} / {activeSlides.length}
                     </div>
                   </>
                 )}
               </div>
 
-              {/* Kompaktowy pasek miniaturek */}
+              {/* Pasek miniaturek pod zdjęciem */}
               {activeSlides.length > 1 && (
                 <div className="shrink-0 flex items-center justify-start sm:justify-center gap-1.5 overflow-x-auto border-t border-border/60 bg-muted/40 px-3 py-1.5 sm:py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {activeSlides.map((slide, idx) => (
@@ -735,8 +764,8 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
                 </div>
               )}
 
-              {/* Kompaktowy, dopasowany do motywu podpis pod zdjęciem */}
-              <div className="shrink-0 overflow-y-auto border-t border-border/60 bg-card px-3.5 py-2.5 sm:px-5 sm:py-3">
+              {/* Kompaktowy opis pod zdjęciem i miniaturkami */}
+              <div className="shrink-0 border-t border-border/60 bg-card px-3.5 py-2.5 sm:px-5 sm:py-3">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
@@ -747,7 +776,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
                       <span className="hidden sm:inline text-border">·</span>
                       <span className="hidden sm:inline-flex items-center gap-1 font-normal text-muted-foreground">
                         <Copyright className="h-3 w-3 text-emerald-700 dark:text-emerald-400" />
-                        {getLocalizedAttribution(activePhoto, langCode).author}
+                        {activeAttribution.author}
                       </span>
                     </div>
                     <h3 className="truncate text-xs font-bold text-foreground sm:text-sm">
@@ -775,8 +804,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
                 {showEventDetails && (
                   <p className="mt-1.5 border-t border-border/50 pt-1.5 text-[11px] leading-snug text-muted-foreground">
                     {activePhoto.caption} · {licenseLabel}:{" "}
-                    {getLocalizedAttribution(activePhoto, langCode).license}.{" "}
-                    {rightsReserved}
+                    {activeAttribution.license}. {rightsReserved}
                   </p>
                 )}
               </div>
