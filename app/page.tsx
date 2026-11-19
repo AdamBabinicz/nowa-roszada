@@ -21,6 +21,7 @@ import { PartnerBanner } from "@/components/sections/partner-banner";
 import { ContactSection } from "@/components/sections/contact-section";
 import { Footer } from "@/components/layout/footer";
 import { CookieBanner } from "@/components/ui/cookie-banner";
+import { JubileeSpotlightModal } from "@/components/ui/jubilee-spotlight-modal";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
 
 // Automatyczny tłumacz kotwic URL (#hash) przy zmianie języka (PL / EN / DE / HU)
@@ -286,6 +287,10 @@ export default function Page() {
         messages={t}
         isOpen={cookieSettingsOpen}
         onClose={() => setCookieSettingsOpen(false)}
+      />
+      <JubileeSpotlightModal
+        currentLanguage={language}
+        cookieBannerOpen={cookieSettingsOpen}
       />
       <ScrollToTop ariaLabel={t.scrollTopAria} />
     </main>
