@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowUpRight,
   Camera,
@@ -222,7 +223,7 @@ function getLocalizedAttribution(photo: GalleryItem, lang: LangCode) {
           : isDe
             ? "Veröffentlichungsgenehmigung für UKS Roszada Radom"
             : isHu
-              ? "Közlési engedély az UKS Roszada Radom részére"
+              ? "Közlési engély az UKS Roszada Radom részére"
               : "Authorized publication for UKS Roszada Radom",
       };
     case "turniej-hala-radom-2024":
@@ -248,6 +249,7 @@ function getLocalizedAttribution(photo: GalleryItem, lang: LangCode) {
 }
 
 export function GallerySection({ messages: t }: GallerySectionProps) {
+  const [mounted, setMounted] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<number | "ALL">(
     "ALL",
   );
@@ -255,6 +257,14 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
   const [slideIndex, setSlideIndex] = useState(0);
   const [showEventDetails, setShowEventDetails] = useState(false);
   const [dbRows, setDbRows] = useState<GalleryRow[] | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const isHorizontalSwipeRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -301,6 +311,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
     return dbRows.map((row) => {
       const eventCaption = pickLocalized(row, "caption", langCode);
       const rawPhotos = Array.isArray(row.photos) ? row.photos : [];
+
       const slides: GallerySlide[] =
         rawPhotos.length > 0
           ? rawPhotos.map((p) => ({
@@ -342,6 +353,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
 
   const openPhoto = (photo: GalleryItem) => {
     setSlideIndex(0);
+    setSwipeOffset(0);
     setShowEventDetails(false);
     setActivePhoto(photo);
   };
@@ -349,6 +361,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
   const closePhoto = useCallback(() => {
     setActivePhoto(null);
     setSlideIndex(0);
+    setSwipeOffset(0);
     setShowEventDetails(false);
   }, []);
 
@@ -364,6 +377,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
     setSlideIndex((prev) => (prev + 1) % activeSlides.length);
   }, [activeSlides.length]);
 
+  // Obsługa klawiatury i blokada przewijania strony w tle podczas otwartego slajdera
   useEffect(() => {
     if (!activePhoto) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -375,11 +389,62 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
         showNextSlide();
       }
     };
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", handleKeyDown);
     return () => {
+      document.body.style.overflow = originalOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [activePhoto, closePhoto, showPrevSlide, showNextSlide]);
+
+  // Obsługa gestu przesuwania palcem (Touch Swipe) w mobilu
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (activeSlides.length <= 1 || e.touches.length !== 1) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+    isHorizontalSwipeRef.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (
+      !touchStartRef.current ||
+      activeSlides.length <= 1 ||
+      e.touches.length !== 1
+    ) {
+      return;
+    }
+
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+
+    if (
+      isHorizontalSwipeRef.current === null &&
+      (Math.abs(dx) > 8 || Math.abs(dy) > 8)
+    ) {
+      isHorizontalSwipeRef.current = Math.abs(dx) > Math.abs(dy);
+    }
+
+    if (isHorizontalSwipeRef.current) {
+      // Subtelne podążanie zdjęcia za palcem (z lekkim oporem)
+      setSwipeOffset(Math.max(-110, Math.min(110, dx * 0.45)));
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (isHorizontalSwipeRef.current && Math.abs(swipeOffset) > 20) {
+      if (swipeOffset < 0) {
+        showNextSlide();
+      } else {
+        showPrevSlide();
+      }
+    }
+    touchStartRef.current = null;
+    isHorizontalSwipeRef.current = null;
+    setSwipeOffset(0);
+  };
 
   // Zlokalizowana, rzetelna nota prawna bezpośrednio ze słowników językowych
   const legalNote = t.gallery.legalNote;
@@ -426,6 +491,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
               {t.gallery.subtitle}
             </p>
           </div>
+
           <div className="mt-4 md:mt-0">
             <a
               href={CLUB_CONTACT.facebook}
@@ -452,6 +518,7 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
           >
             {t.gallery.filterAll}
           </button>
+
           {t.gallery.categories.map((catName, idx) => (
             <button
               key={catName}
@@ -554,143 +621,169 @@ export function GallerySection({ messages: t }: GallerySectionProps) {
         </div>
       </div>
 
-      {/* Lightbox Modal ze slajderem — obraz na pierwszym planie, pełne wsparcie motywu jasnego i ciemnego */}
-      {activePhoto && currentSlide && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t.lightbox.ariaLabel}
-          onClick={closePhoto}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4 backdrop-blur-sm dark:bg-black/88"
-        >
+      {/* Lightbox Modal ze slajderem — uniwersalna proporcja kadru + przesuwanie palcem (swipe) */}
+      {mounted &&
+        activePhoto &&
+        currentSlide &&
+        createPortal(
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative flex h-[90vh] sm:h-[92vh] w-full max-w-[96vw] lg:max-w-5xl xl:max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t.lightbox.ariaLabel}
+            onClick={closePhoto}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-2.5 sm:p-4 backdrop-blur-sm dark:bg-black/88"
           >
-            {/* Główna scena fotografii — zajmuje całą wolną wysokość (~80% okna) */}
-            <div className="relative flex flex-1 min-h-0 items-center justify-center bg-zinc-100 p-1.5 sm:p-3 dark:bg-zinc-950">
-              <img
-                src={currentSlide.url}
-                alt={currentSlide.caption || activePhoto.title}
-                decoding="async"
-                className="max-h-full max-w-full w-auto h-auto rounded-lg object-contain select-none shadow-xs"
-              />
-
-              {/* Zamknij */}
-              <button
-                type="button"
-                onClick={closePhoto}
-                className="absolute top-2.5 right-2.5 z-20 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-background"
-                aria-label={t.lightbox.closeAria}
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative flex max-h-[92dvh] w-full max-w-[96vw] lg:max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card text-foreground shadow-2xl"
+            >
+              {/* Scena fotografii o stałej, uniwersalnej proporcji (5:4 na mobile, 16:10 na desktopie) */}
+              <div
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
+                className="relative flex w-full shrink-0 aspect-[5/4] sm:aspect-[16/10] max-h-[60dvh] sm:max-h-[66dvh] items-center justify-center overflow-hidden bg-zinc-200 dark:bg-zinc-950 touch-pan-y select-none"
               >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
+                {/* Miękkie, rozmyte tło z bieżącego zdjęcia wypełniające boki bez czarnych pasów */}
+                <img
+                  src={currentSlide.url}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl dark:opacity-40"
+                />
 
-              {activeSlides.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={showPrevSlide}
-                    aria-label={sliderLabels.prevPhoto}
-                    className="absolute top-1/2 left-2 sm:left-3 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
-                  >
-                    <ChevronLeft
-                      className="h-5 w-5 sm:h-6 sm:w-6"
-                      aria-hidden="true"
-                    />
-                  </button>
+                {/* Główne zdjęcie — w całości widoczne (bez przycinania), przesuwane palcem */}
+                <img
+                  src={currentSlide.url}
+                  alt={currentSlide.caption || activePhoto.title}
+                  decoding="async"
+                  draggable={false}
+                  style={{
+                    transform: `translateX(${swipeOffset}px)`,
+                    transition:
+                      swipeOffset === 0 ? "transform 180ms ease-out" : "none",
+                  }}
+                  className="relative z-10 max-h-full max-w-full w-auto h-auto p-1.5 sm:p-2.5 object-contain drop-shadow-md"
+                />
 
-                  <button
-                    type="button"
-                    onClick={showNextSlide}
-                    aria-label={sliderLabels.nextPhoto}
-                    className="absolute top-1/2 right-2 sm:right-3 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
-                  >
-                    <ChevronRight
-                      className="h-5 w-5 sm:h-6 sm:w-6"
-                      aria-hidden="true"
-                    />
-                  </button>
+                {/* Zamknij */}
+                <button
+                  type="button"
+                  onClick={closePhoto}
+                  className="absolute top-2.5 right-2.5 z-20 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-background"
+                  aria-label={t.lightbox.closeAria}
+                >
+                  <X className="h-5 w-5" aria-hidden="true" />
+                </button>
 
-                  <div className="absolute top-2.5 left-2.5 rounded-full border border-border/80 bg-background/85 px-2.5 py-1 text-[11px] font-bold text-foreground shadow-xs backdrop-blur-xs">
-                    {safeSlideIndex + 1} / {activeSlides.length}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Kompaktowy pasek miniaturek */}
-            {activeSlides.length > 1 && (
-              <div className="shrink-0 flex items-center justify-start sm:justify-center gap-1.5 overflow-x-auto border-t border-border/60 bg-muted/40 px-3 py-1.5 sm:py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {activeSlides.map((slide, idx) => (
-                  <button
-                    key={`${slide.url}-${idx}`}
-                    type="button"
-                    onClick={() => setSlideIndex(idx)}
-                    className={`relative h-10 w-14 sm:h-12 sm:w-16 shrink-0 overflow-hidden rounded-md border-2 transition-all ${
-                      idx === safeSlideIndex
-                        ? "border-emerald-600 ring-2 ring-emerald-500/30"
-                        : "border-transparent opacity-60 hover:opacity-100"
-                    }`}
-                  >
-                    <img
-                      src={slide.url}
-                      alt={`${activePhoto.title} (${idx + 1})`}
-                      className="h-full w-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Kompaktowy, dopasowany do motywu podpis pod zdjęciem */}
-            <div className="shrink-0 border-t border-border/60 bg-card px-3.5 py-2.5 sm:px-5 sm:py-3">
-              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-                    <span>
-                      {t.gallery.categories[activePhoto.categoryIndex]} ·{" "}
-                      {activePhoto.count}
-                    </span>
-                    <span className="hidden sm:inline text-border">·</span>
-                    <span className="hidden sm:inline-flex items-center gap-1 font-normal text-muted-foreground">
-                      <Copyright className="h-3 w-3 text-emerald-700 dark:text-emerald-400" />
-                      {getLocalizedAttribution(activePhoto, langCode).author}
-                    </span>
-                  </div>
-                  <h3 className="truncate text-xs font-bold text-foreground sm:text-sm">
-                    {activePhoto.title}
-                  </h3>
-                </div>
-
-                {activeSlides.length > 1 &&
-                  currentSlide.caption !== activePhoto.caption && (
+                {activeSlides.length > 1 && (
+                  <>
                     <button
                       type="button"
-                      onClick={() => setShowEventDetails((prev) => !prev)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-accent"
+                      onClick={showPrevSlide}
+                      aria-label={sliderLabels.prevPhoto}
+                      className="absolute top-1/2 left-2 sm:left-3 z-20 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
                     >
-                      <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-                      <span>{sliderLabels.detailsBtn}</span>
+                      <ChevronLeft
+                        className="h-5 w-5 sm:h-6 sm:w-6"
+                        aria-hidden="true"
+                      />
                     </button>
-                  )}
+
+                    <button
+                      type="button"
+                      onClick={showNextSlide}
+                      aria-label={sliderLabels.nextPhoto}
+                      className="absolute top-1/2 right-2 sm:right-3 z-20 -translate-y-1/2 flex h-9 w-9 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-border/80 bg-background/85 text-foreground shadow-md backdrop-blur-xs transition-colors hover:bg-emerald-700 hover:text-white hover:border-emerald-700"
+                    >
+                      <ChevronRight
+                        className="h-5 w-5 sm:h-6 sm:w-6"
+                        aria-hidden="true"
+                      />
+                    </button>
+
+                    <div className="absolute top-2.5 left-2.5 z-20 rounded-full border border-border/80 bg-background/85 px-2.5 py-1 text-[11px] font-bold text-foreground shadow-xs backdrop-blur-xs">
+                      {safeSlideIndex + 1} / {activeSlides.length}
+                    </div>
+                  </>
+                )}
               </div>
 
-              <p className="mt-1 text-[11px] leading-snug text-foreground/85 sm:text-xs">
-                {currentSlide.caption}
-              </p>
-
-              {showEventDetails && (
-                <p className="mt-1.5 border-t border-border/50 pt-1.5 text-[11px] leading-snug text-muted-foreground">
-                  {activePhoto.caption} · {licenseLabel}:{" "}
-                  {getLocalizedAttribution(activePhoto, langCode).license}.{" "}
-                  {rightsReserved}
-                </p>
+              {/* Kompaktowy pasek miniaturek */}
+              {activeSlides.length > 1 && (
+                <div className="shrink-0 flex items-center justify-start sm:justify-center gap-1.5 overflow-x-auto border-t border-border/60 bg-muted/40 px-3 py-1.5 sm:py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {activeSlides.map((slide, idx) => (
+                    <button
+                      key={`${slide.url}-${idx}`}
+                      type="button"
+                      onClick={() => setSlideIndex(idx)}
+                      className={`relative h-10 w-14 sm:h-12 sm:w-16 shrink-0 overflow-hidden rounded-md border-2 transition-all ${
+                        idx === safeSlideIndex
+                          ? "border-emerald-600 ring-2 ring-emerald-500/30"
+                          : "border-transparent opacity-60 hover:opacity-100"
+                      }`}
+                    >
+                      <img
+                        src={slide.url}
+                        alt={`${activePhoto.title} (${idx + 1})`}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
               )}
+
+              {/* Kompaktowy, dopasowany do motywu podpis pod zdjęciem */}
+              <div className="shrink-0 overflow-y-auto border-t border-border/60 bg-card px-3.5 py-2.5 sm:px-5 sm:py-3">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                      <span>
+                        {t.gallery.categories[activePhoto.categoryIndex]} ·{" "}
+                        {activePhoto.count}
+                      </span>
+                      <span className="hidden sm:inline text-border">·</span>
+                      <span className="hidden sm:inline-flex items-center gap-1 font-normal text-muted-foreground">
+                        <Copyright className="h-3 w-3 text-emerald-700 dark:text-emerald-400" />
+                        {getLocalizedAttribution(activePhoto, langCode).author}
+                      </span>
+                    </div>
+                    <h3 className="truncate text-xs font-bold text-foreground sm:text-sm">
+                      {activePhoto.title}
+                    </h3>
+                  </div>
+
+                  {activeSlides.length > 1 &&
+                    currentSlide.caption !== activePhoto.caption && (
+                      <button
+                        type="button"
+                        onClick={() => setShowEventDetails((prev) => !prev)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-accent"
+                      >
+                        <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                        <span>{sliderLabels.detailsBtn}</span>
+                      </button>
+                    )}
+                </div>
+
+                <p className="mt-1 text-[11px] leading-snug text-foreground/85 sm:text-xs">
+                  {currentSlide.caption}
+                </p>
+
+                {showEventDetails && (
+                  <p className="mt-1.5 border-t border-border/50 pt-1.5 text-[11px] leading-snug text-muted-foreground">
+                    {activePhoto.caption} · {licenseLabel}:{" "}
+                    {getLocalizedAttribution(activePhoto, langCode).license}.{" "}
+                    {rightsReserved}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </section>
   );
 }
